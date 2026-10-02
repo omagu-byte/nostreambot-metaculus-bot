@@ -24,6 +24,9 @@ _LEADING_HEADING_RE = re.compile(r"^(#{1,2})(?=\s|$)", re.MULTILINE)
 # reasoning as the dead ``logs-<run_id>`` prefix kept in RUN_LOG_ARTIFACT_PREFIXES.
 PROVIDER_SECTION_HEADERS: dict[str, str] = {
     "asknews": "## News Articles (AskNews)",
+    "ydc": "## Web Research (You.com)",
+    "firecrawl": "## Web Research (Firecrawl)",
+    "nimble": "## Web Research (Nimble Agent Search)",
     "native_search": "## Web Research (Native Search)",
     "gemini_search": "## Web Research (Google Search via Gemini)",
     "financial_data": "## Financial & Economic Data",

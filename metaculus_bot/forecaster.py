@@ -757,7 +757,12 @@ class TemplateForecaster(CompactLoggingForecastBot):
         predicted_research: ResearchWithPredictions,
     ) -> str:
         text = super()._format_and_expand_research_summary(report_number, report_type, predicted_research)
-        return format_research_summary_with_models(text, predicted_research.predictions, report_number)
+        return format_research_summary_with_models(
+            text,
+            predicted_research.predictions,
+            report_number,
+            research_text=predicted_research.research_report,
+        )
 
     @classmethod
     def _format_main_research(

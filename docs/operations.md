@@ -282,11 +282,15 @@ Gemini has two separate routes, which is the other easy thing to confuse:
   subsection below.
 
 Other keys, all personal, no shared variants: `METACULUS_TOKEN`, `MANTIC_TOKEN`
-(the Crucible bot token, read only in `--mode mantic`), `ASKNEWS_CLIENT_ID`
-+ `ASKNEWS_SECRET`, `EXA_API_KEY`, `PERPLEXITY_API_KEY`, `FRED_API_KEY`,
-`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`. The two direct provider keys only matter
-if you bypass OpenRouter; most flows route through OpenRouter and don't need
-them.
+(the Crucible bot token, read only in `--mode mantic`), `YDC_API_KEY`,
+`FIRECRAWL_API_KEY`, `NIMBLE_API_KEY`, `ASKNEWS_CLIENT_ID` + `ASKNEWS_SECRET`,
+`EXA_API_KEY`, `PERPLEXITY_API_KEY`, `FRED_API_KEY`, `GOOGLE_API_KEY`,
+`ANTHROPIC_API_KEY`, and `OPENAI_API_KEY`. The two direct model-provider keys
+only matter if you bypass OpenRouter; most flows route through OpenRouter and
+don't need them. You.com and Firecrawl are the concurrent web-search primaries
+when their keys are configured. Nimble Agent Search is tried only if those
+primaries both return no usable research. FRED remains limited to financial data,
+and Google AI Studio is used for grounded search and URL-context reading.
 
 `SEC_EDGAR_CONTACT_EMAIL` is not a key but a contact address (also personal): the SEC EDGAR
 client puts it in the fair-access User-Agent, and the client declines to dial without it. The
