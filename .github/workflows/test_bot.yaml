@@ -88,15 +88,11 @@ jobs:
           # is lost if the run crashes before a buffer flush.
           PYTHONUNBUFFERED: '1'
           METACULUS_TOKEN: ${{ secrets.METACULUS_TOKEN }} # replace this with the name of the variable under which you stored your own Metaculus token
-          PERPLEXITY_API_KEY: ${{ secrets.PERPLEXITY_API_KEY }}
           # Exa semantic search (gap-fill v2's search_web tool; also the legacy
           # SmartSearcher fallback path). Secret name is lowercase exa_key
           # (funded 2026-07-16).
           EXA_API_KEY: ${{ secrets.exa_key }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          OAI_ANTH_OPENROUTER_KEY: ${{ secrets.OAI_ANTH_OPENROUTER_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ASKNEWS_CLIENT_ID: ${{ secrets.ASKNEWS_CLIENT_ID }}
           ASKNEWS_SECRET: ${{ secrets.ASKNEWS_SECRET }}
           ASKNEWS_MAX_CONCURRENCY: '1'
@@ -107,33 +103,17 @@ jobs:
           # scratch_docs_and_planning/transient_retry_fix.md). Code already sets
           # this default in metaculus_bot/__init__.py; pinned here for parity.
           DISABLE_AIOHTTP_TRANSPORT: 'true'
-          # Native search runs in parallel with AskNews; model defaults to
-          # openai/gpt-6-sol (low effort, verbosity=low, 360s) per constants.py.
-          NATIVE_SEARCH_ENABLED: 'true'
+          # Standalone native search is disabled; gap-fill v1 uses the free model default.
+          NATIVE_SEARCH_ENABLED: 'false'
           FINANCIAL_DATA_ENABLED: 'true'
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
-          # Gemini grounded search (Google AI Studio SDK) adds a 3rd distinct source.
-          # GOOGLE_API_KEY is the operator's personal Google AI Studio key (stored
-          # in CI as secrets.GEMINI_API_KEY). The grounded-search side has no
-          # donated/shared path — Google AI Studio doesn't offer one.
-          GOOGLE_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_SEARCH_ENABLED: 'true'
-          # OpenRouter Gemini routing (forecaster, stacker, summarizer when the
-          # ensemble includes a Google model). When 'true' (default since
-          # 2026-06-16), Gemini OpenRouter calls prefer the Metaculus-donated
-          # OAI_ANTH_OPENROUTER_KEY wrapper with personal-key fallback. On because
-          # Metaculus raised the Google rate limits — the donated key serves most
-          # Gemini now; gemini-3.1-pro-preview is pinned to the personal key
-          # (DONATED_KEY_BLOCKED_GOOGLE_MODELS blocklist; no donated attempt, no
-          # 429) pending the Metaculus BYOK fix.
-          GEMINI_USE_DONATED_OPENROUTER_KEY: 'true'
+          # Direct Gemini model inference is disabled; no Google model key is injected.
+          GEMINI_SEARCH_ENABLED: 'false'
           # Second-pass gap-fill: analyzer identifies gaps in first-pass research,
           # parallel grounded Gemini searches resolve each. Fails soft.
           GAP_FILL_ENABLED: 'true'
-          # Agentic gap-fill v2 (bounded research loop; runs concurrently with
-          # v1 when both are on). ON since 2026-07-17 after smoke + blind driver
-          # eval + Exa confirmation; v1 stays on for an overlap window.
-          GAP_FILL_V2_ENABLED: 'true'
+          # Agentic gap-fill v2 uses Google URL-context; keep disabled in free-only mode.
+          GAP_FILL_V2_ENABLED: 'false'
           # Prediction-market snapshot provider: Polymarket + Kalshi + Manifold.
           # Manual workflow_dispatch runs use this for end-to-end testing in prod
           # mode (is_benchmarking=False).
@@ -141,12 +121,8 @@ jobs:
           # Fetch URLs cited in the resolution criteria; long HTML uses the paid
           # page-digest extractor, as in the production workflows.
           RESOLUTION_SOURCE_ENABLED: 'true'
-          # The ladder's one PAID rung: when every free rung has failed to read a
-          # cited page, Gemini's url_context reader is asked to read it, billed to
-          # GOOGLE_API_KEY above. ON since 2026-09-04. Bounded by the free
-          # Google-Extended robots pre-check, the rung's wall-budget floor and
-          # RESOLUTION_SOURCE_URL_CONTEXT_MAX_ATTEMPTS paid reads per question.
-          RESOLUTION_SOURCE_URL_CONTEXT_ENABLED: 'true'
+          # Gemini URL-context is a paid inference rung; disabled in free-only mode.
+          RESOLUTION_SOURCE_URL_CONTEXT_ENABLED: 'false'
           # Time-series anchor: deterministic empirical P10/P50/P90 band from a
           # question's own resolution series (FRED/yfinance). Text anchor ON since
           # 2026-07-17 (post smoke validation; see FUTURE.md "Time-series anchor").

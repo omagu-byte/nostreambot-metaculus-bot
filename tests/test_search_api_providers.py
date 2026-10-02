@@ -150,8 +150,6 @@ def test_fallback_ladder_includes_each_configured_legacy_search_provider(
         "ASKNEWS_CLIENT_ID",
         "ASKNEWS_SECRET",
         "EXA_API_KEY",
-        "PERPLEXITY_API_KEY",
-        "OPENROUTER_API_KEY",
     ):
         monkeypatch.setenv(key, "configured")
     orchestrator = ResearchOrchestrator(default_llm=mock_general_llm, summarizer_llm=mock_general_llm)
@@ -160,8 +158,6 @@ def test_fallback_ladder_includes_each_configured_legacy_search_provider(
         "nimble",
         "asknews",
         "exa",
-        "perplexity",
-        "openrouter",
     ]
 
 

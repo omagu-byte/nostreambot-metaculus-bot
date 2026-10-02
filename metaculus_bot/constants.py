@@ -378,7 +378,7 @@ NATIVE_SEARCH_ENABLED_ENV: str = "NATIVE_SEARCH_ENABLED"
 NATIVE_SEARCH_MODEL_ENV: str = "NATIVE_SEARCH_MODEL"
 # Critical-path research; sol->terra 2026-07-17, terra->sol (GPT-6, no Terra successor) 2026-09-22.
 # Receipt: docs/constants.md "NATIVE_SEARCH_DEFAULT_MODEL".
-NATIVE_SEARCH_DEFAULT_MODEL: str = "openai/gpt-6-sol"
+NATIVE_SEARCH_DEFAULT_MODEL: str = "nvidia/nemotron-3.5-lightning:free"
 NATIVE_SEARCH_MAX_TOKENS: int = 16_000  # no temperature / top_p: temperature=None, so litellm omits it
 # The litellm per-request timeout, 240->360 on 2026-05-17. Receipt: docs/constants.md "NATIVE_SEARCH_TIMEOUT".
 NATIVE_SEARCH_TIMEOUT: int = 360
@@ -474,7 +474,7 @@ URL_CONTEXT_SIZE_GATE_TOKENS: int = 100_000
 
 # "Luna is dirt cheap and medium will still be fast enough" (operator). luna->GPT-6 luna 2026-09-22,
 # effort unchanged pending a decision. Receipt: docs/constants.md "PAGE_DIGEST_EXTRACTOR_MODEL".
-PAGE_DIGEST_EXTRACTOR_MODEL: str = "openrouter/openai/gpt-6-luna"
+PAGE_DIGEST_EXTRACTOR_MODEL: str = "openrouter/qwen/qwen3.8-27b:free"
 PAGE_DIGEST_EXTRACTOR_EFFORT: str = "medium"
 # 20 -> 30 s 2026-09-22; gpt-6-luna digests measured 1.4-4.8 s. Receipt: docs/constants.md "PAGE_DIGEST_EXTRACTOR_TIMEOUT_S".
 PAGE_DIGEST_EXTRACTOR_TIMEOUT_S: float = 30.0
@@ -542,7 +542,7 @@ GOOGLE_API_KEY_ENV: str = "GOOGLE_API_KEY"
 # OpenRouter Gemini routing only. Receipt: docs/constants.md "GEMINI_USE_DONATED_OPENROUTER_KEY_ENV".
 GEMINI_USE_DONATED_OPENROUTER_KEY_ENV: str = "GEMINI_USE_DONATED_OPENROUTER_KEY"
 # Verified live on the native SDK 2026-09-03. Receipt: docs/constants.md "GEMINI_SEARCH_DEFAULT_MODEL".
-GEMINI_SEARCH_DEFAULT_MODEL: str = "gemini-3.8-flash"
+GEMINI_SEARCH_DEFAULT_MODEL: str = "gemini-2.5-flash"
 # 6 min: a 10-round AFC chain takes 150-200 s. Receipt: docs/constants.md "GEMINI_SEARCH_TIMEOUT".
 GEMINI_SEARCH_TIMEOUT: int = 360
 # Per-call wall for resolving all cited search links; use the remaining search wall. Receipt: docs/constants.md "GEMINI_SEARCH_LINK_RESOLVE_TIMEOUT_S".
@@ -562,7 +562,7 @@ GAP_FILL_V2_READER_HTTP_ATTEMPTS: int = 2
 GAP_FILL_ENABLED_ENV: str = "GAP_FILL_ENABLED"
 # Non-grounded decomposition under a tight wall. terra->sol (GPT-6, no Terra successor) 2026-09-22.
 # Receipt: docs/constants.md "GAP_FILL_ANALYZER_MODEL".
-GAP_FILL_ANALYZER_MODEL: str = "openrouter/openai/gpt-6-sol"
+GAP_FILL_ANALYZER_MODEL: str = "openrouter/qwen/qwen3.8-27b:free"
 # 5 -> 4 on 2026-07-20; do NOT go below 4. Receipt: docs/constants.md "GAP_FILL_MAX_GAPS".
 GAP_FILL_MAX_GAPS: int = 4
 GAP_FILL_ANALYZER_TIMEOUT: int = 120  # tight, so a hung analyzer cannot hold a research slot
@@ -571,7 +571,7 @@ GAP_FILL_ANALYZER_WALL_TIMEOUT: int = 135
 GAP_FILL_MIN_RESEARCH_CHARS: int = 200  # under this every provider likely soft-failed
 # Moved off grounded Gemini 2026-06-25; sol->terra 2026-07-20; terra->sol (GPT-6, no Terra successor)
 # 2026-09-22. Receipt: docs/constants.md "GAP_FILL_RESOLVER_MODEL".
-GAP_FILL_RESOLVER_MODEL: str = "openai/gpt-6-sol"
+GAP_FILL_RESOLVER_MODEL: str = "nvidia/nemotron-3.5-lightning:free"
 GAP_FILL_RESOLVER_REASONING_EFFORT: str = "low"
 
 # --- Agentic gap-fill v2 (bounded research loop) ---
@@ -589,10 +589,14 @@ GAP_FILL_IMAGE_METADATA_MAX_CHARS: int = 160
 GAP_FILL_V2_TOOL_BUDGET_LINE_RESERVE_CHARS: int = 512
 # terra-low won the blind 5-arm replay eval 2026-07-17; terra->sol (GPT-6, no Terra successor)
 # 2026-09-22, effort default unchanged at low. Receipt: docs/constants.md "GAP_FILL_V2_DRIVER_MODEL".
-GAP_FILL_V2_DRIVER_MODEL: str = os.getenv("GAP_FILL_V2_DRIVER_MODEL") or "openai/gpt-6-sol"
+GAP_FILL_V2_DRIVER_MODEL: str = os.getenv("GAP_FILL_V2_DRIVER_MODEL") or "openrouter/qwen/qwen3.8-27b:free"
+if not GAP_FILL_V2_DRIVER_MODEL.endswith(":free"):
+    raise ValueError("GAP_FILL_V2_DRIVER_MODEL must use an explicit OpenRouter :free route")
 GAP_FILL_V2_DRIVER_EFFORT: str = os.getenv("GAP_FILL_V2_DRIVER_EFFORT") or "low"
 # A wrong id, or a robots-gated host, kills the rung silently. Receipt: docs/constants.md "GAP_FILL_V2_READER_MODEL".
-GAP_FILL_V2_READER_MODEL: str = os.getenv("GAP_FILL_V2_READER_MODEL") or "gemini-3.8-flash"
+GAP_FILL_V2_READER_MODEL: str = os.getenv("GAP_FILL_V2_READER_MODEL") or "gemini-2.5-flash"
+if GAP_FILL_V2_READER_MODEL != "gemini-2.5-flash":
+    raise ValueError("GAP_FILL_V2_READER_MODEL must remain on the free-tier gemini-2.5-flash route")
 # Raised with the W2 ambition floor 2026-07-21. Receipt: docs/constants.md "GAP_FILL_V2_MAX_TOOL_CALLS".
 GAP_FILL_V2_MAX_TOOL_CALLS: int = _int_env("GAP_FILL_V2_MAX_TOOL_CALLS", 30)
 # Inside v1's worst-case envelope. Receipt: docs/constants.md "GAP_FILL_V2_WALL_DEADLINE".
@@ -609,7 +613,7 @@ FINANCIAL_DATA_ENABLED_ENV: str = "FINANCIAL_DATA_ENABLED"
 FRED_API_KEY_ENV: str = "FRED_API_KEY"
 # Capability-saturated, so the cheapest capable tier. luna->GPT-6 luna 2026-09-22.
 # Receipt: docs/constants.md "FINANCIAL_CLASSIFIER_MODEL".
-FINANCIAL_CLASSIFIER_MODEL: str = "openrouter/openai/gpt-6-luna"
+FINANCIAL_CLASSIFIER_MODEL: str = "openrouter/qwen/qwen3.8-27b:free"
 FINANCIAL_CLASSIFIER_TIMEOUT: int = 30
 # Never spent as a bare period="Nd". Receipt: docs/constants.md "FINANCIAL_YFINANCE_LOOKBACK_DAYS".
 FINANCIAL_YFINANCE_LOOKBACK_DAYS: int = 390
@@ -700,7 +704,7 @@ BACKTEST_DEFAULT_MIN_FORECASTERS: int = 40
 BACKTEST_OVERFETCH_RATIO: int = 3
 # Saturated backtest-only screen, cheapest capable tier. luna->GPT-6 luna 2026-09-22.
 # Receipt: docs/constants.md "LEAKAGE_DETECTOR_MODEL".
-LEAKAGE_DETECTOR_MODEL: str = "openrouter/openai/gpt-6-luna"
+LEAKAGE_DETECTOR_MODEL: str = "openrouter/qwen/qwen3.8-27b:free"
 
 # --- Per-type stacking gates ---
 

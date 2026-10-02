@@ -115,7 +115,10 @@ def build_gemini_client() -> genai.Client:
 
 
 def _resolve_model(model_slug: str | None) -> str:
-    return model_slug or os.getenv(GEMINI_SEARCH_MODEL_ENV, GEMINI_SEARCH_DEFAULT_MODEL)
+    model = model_slug or os.getenv(GEMINI_SEARCH_MODEL_ENV, GEMINI_SEARCH_DEFAULT_MODEL)
+    if model != GEMINI_SEARCH_DEFAULT_MODEL:
+        raise ValueError(f"Gemini search is restricted to the free-tier {GEMINI_SEARCH_DEFAULT_MODEL} model")
+    return model
 
 
 _URL_CONTEXT_NONE_MARKER = "_url_context: none_"

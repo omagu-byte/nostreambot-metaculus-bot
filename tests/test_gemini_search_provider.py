@@ -124,7 +124,7 @@ async def test_provider_uses_default_model(monkeypatch: pytest.MonkeyPatch) -> N
 
     assert fake_client.aio.models.generate_content.await_count == 1
     call_kwargs = fake_client.aio.models.generate_content.await_args.kwargs
-    assert call_kwargs["model"] == "gemini-3.8-flash"
+    assert call_kwargs["model"] == "gemini-2.5-flash"
     assert "Will X happen?" in call_kwargs["contents"]
 
 
@@ -141,15 +141,18 @@ async def test_provider_uses_env_override(monkeypatch: pytest.MonkeyPatch) -> No
 
 
 @pytest.mark.asyncio
-async def test_provider_uses_explicit_slug(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_provider_rejects_paid_explicit_slug(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GOOGLE_API_KEY", "fake-key")
     monkeypatch.setenv("GEMINI_SEARCH_MODEL", "gemini-2.5-flash")
     fake_client = _make_client_with_response(_make_response("research text"))
 
-    with patch("metaculus_bot.research.gemini_search.genai.Client", return_value=fake_client):
-        await gemini_search.gemini_search_provider(model_slug="gemini-explicit-override")(_make_q("Will X happen?"))
+    with (
+        patch("metaculus_bot.research.gemini_search.genai.Client", return_value=fake_client),
+        pytest.raises(ValueError, match=r"restricted to the free-tier gemini-2\.5-flash"),
+    ):
+        await gemini_search.gemini_search_provider(model_slug="gemini-3.8-flash")(_make_q("Will X happen?"))
 
-    assert fake_client.aio.models.generate_content.await_args.kwargs["model"] == "gemini-explicit-override"
+    fake_client.aio.models.generate_content.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -324,7 +327,7 @@ async def test_zero_verified_links_suppresses_and_records_loss(
     assert out == ""
     assert "GEMINI_SELF_CITATION: question=6004" in caplog.text
     assert "links=1 unique=1 resolved=0 unverified=1 sources=0" in caplog.text
-    assert "GEMINI_UNGROUNDED_SUPPRESSED: question=6004 model=gemini-3.8-flash queries=30" in caplog.text
+    assert "GEMINI_UNGROUNDED_SUPPRESSED: question=6004 model=gemini-2.5-flash queries=30" in caplog.text
     detail = pop_provider_detail(6004, "gemini_search")
     assert _is_lost_source(detail["sources"]["grounding"])
 

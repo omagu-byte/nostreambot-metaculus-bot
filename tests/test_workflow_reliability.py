@@ -404,17 +404,8 @@ class TestFetchDiagnosticCannotSpend:
         )
 
 
-class TestPaidUrlContextRungIsArmedInEveryBotWorkflow:
-    """The resolution-source ladder's one paid rung ships ON, and only where its key is wired.
-
-    ``RESOLUTION_SOURCE_URL_CONTEXT_ENABLED`` defaults off in code, so a bot workflow that forgets
-    the line runs the whole ladder free and silently forfeits the pages only Gemini's egress can
-    read, while the flag WITHOUT ``GOOGLE_API_KEY`` in the same step is the ``no_api_key``
-    misconfiguration, byte-identical in the archive to a flag-off run. Both halves are pinned per
-    workflow, so a new bot workflow has to make the same choice deliberately rather than inherit
-    the code default. The operator turned the flag on in every bot workflow on 2026-09-04; turning
-    it off anywhere is a cost-gate decision (AGENTS.md), not a tidy-up.
-    """
+class TestProductionFreeModelPolicy:
+    """Production workflows use only explicit free model routes and keep paid Gemini paths off."""
 
     @staticmethod
     def _bot_step_env(workflow: dict[str, Any]) -> dict[str, Any]:
@@ -425,22 +416,18 @@ class TestPaidUrlContextRungIsArmedInEveryBotWorkflow:
         return bot_steps[0].get("env") or {}
 
     @pytest.mark.parametrize("rel_path", _BOT_WORKFLOWS)
-    def test_the_flag_is_on_in_the_bot_step(self, rel_path: str) -> None:
+    def test_paid_url_context_is_off_in_the_bot_step(self, rel_path: str) -> None:
         env = self._bot_step_env(_workflow(rel_path))
-        assert env.get("RESOLUTION_SOURCE_URL_CONTEXT_ENABLED") == "true", (
-            f"{rel_path} does not set RESOLUTION_SOURCE_URL_CONTEXT_ENABLED: 'true' on its bot step, so "
-            "its resolution-source ladder runs without the paid url_context rung the other bot "
-            "workflows have on"
-        )
+        assert env.get("RESOLUTION_SOURCE_URL_CONTEXT_ENABLED") == "false"
+        assert env.get("GEMINI_SEARCH_ENABLED") == "false"
+        assert env.get("GAP_FILL_V2_ENABLED") == "false"
+        assert env.get("NATIVE_SEARCH_ENABLED") == "false"
 
     @pytest.mark.parametrize("rel_path", _BOT_WORKFLOWS)
-    def test_the_key_the_rung_bills_to_is_wired_in_the_same_step(self, rel_path: str) -> None:
+    def test_paid_model_credentials_are_not_wired_in_the_bot_step(self, rel_path: str) -> None:
         env = self._bot_step_env(_workflow(rel_path))
-        assert "secrets." in str(env.get("GOOGLE_API_KEY", "")), (
-            f"{rel_path} arms the paid url_context rung but wires no GOOGLE_API_KEY secret on the bot "
-            "step, so every admitted read would be a no_api_key skip and the run would read in the "
-            "archive exactly like one with the flag off"
-        )
+        for key in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "PERPLEXITY_API_KEY", "GOOGLE_API_KEY"):
+            assert key not in env, f"{rel_path} unexpectedly wires paid model credential {key}"
 
 
 class TestManticWorkflowSpendsOnlyPersonalKeys:
@@ -479,12 +466,10 @@ class TestManticWorkflowSpendsOnlyPersonalKeys:
             "client cannot authenticate and every publish would 401"
         )
 
-    def test_both_donated_routing_flags_are_forced_off(self) -> None:
-        for flag in ("DONATED_OPENROUTER_KEY_ENABLED", "GEMINI_USE_DONATED_OPENROUTER_KEY"):
-            assert f"{flag}: 'false'" in self.mantic_raw, (
-                f"{self.mantic_rel_path} does not set {flag}: 'false'. Both default to true in code, "
-                "and the master switch is what lets cli._assert_personal_keys_only start the run"
-            )
+    def test_donated_routing_is_forced_off(self) -> None:
+        assert "DONATED_OPENROUTER_KEY_ENABLED: 'false'" in self.mantic_raw, (
+            f"{self.mantic_rel_path} does not set DONATED_OPENROUTER_KEY_ENABLED: 'false'"
+        )
 
     def test_the_run_step_selects_mantic_mode(self) -> None:
         assert "--mode mantic" in self.mantic_raw, (
@@ -493,11 +478,6 @@ class TestManticWorkflowSpendsOnlyPersonalKeys:
         )
 
     @pytest.mark.parametrize("rel_path", [p for p in _BOT_WORKFLOWS if not p.endswith("run_bot_on_mantic.yaml")])
-    def test_every_metaculus_bot_workflow_still_wires_the_donated_key(self, rel_path: str) -> None:
+    def test_metaculus_workflows_do_not_need_donated_model_key(self, rel_path: str) -> None:
         raw = (_REPO_ROOT / rel_path).read_text()
-        assert f"{self._DONATED_KEY_SECRET}: ${{{{ secrets.{self._DONATED_KEY_SECRET} }}}}" in raw, (
-            f"{rel_path} no longer wires {self._DONATED_KEY_SECRET} from its secret. Every Metaculus "
-            "workflow routes OpenAI, Anthropic and Google calls through the donated key first; "
-            "dropping it moves the whole run onto the personal key. If this file was overwritten "
-            "with a copy of the Mantic workflow, that is the mistake this pin exists to catch"
-        )
+        assert f"{self._DONATED_KEY_SECRET}:" not in raw

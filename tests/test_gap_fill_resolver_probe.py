@@ -539,7 +539,7 @@ class TestSearchContextSizeOverride:
                 self.model = model
 
         with patch("metaculus_bot.research.providers.build_llm_with_openrouter_fallback", _CaptureLlm):
-            build_native_search_llm("openai/gpt-5.6-terra", reasoning_effort="low", **overrides)
+            build_native_search_llm("nvidia/nemotron-3.5-lightning:free", reasoning_effort="low", **overrides)
         return captured["web_search_options"]
 
     def test_an_explicit_size_wins(self) -> None:

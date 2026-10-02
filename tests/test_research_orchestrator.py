@@ -449,9 +449,8 @@ class TestAskNewsSummarization:
 
     @pytest.mark.asyncio
     async def test_asknews_fallback_prose_is_not_summarized(self, orchestrator, question, monkeypatch):
-        """When AskNews fails and falls back to Perplexity/Exa, the fallback is
-        already LLM prose, so it must NOT be summarized (no double-summarization)."""
-        monkeypatch.setenv("OPENROUTER_API_KEY", "fake-key")
+        """Exa fallback prose must not be sent through the AskNews summarizer."""
+        monkeypatch.setenv("EXA_API_KEY", "fake-key")
         asknews = AsyncMock(side_effect=RuntimeError("asknews down"))
 
         with (
@@ -462,9 +461,9 @@ class TestAskNewsSummarization:
             ),
             patch.object(
                 orchestrator,
-                "_call_perplexity",
+                "_call_exa_smart_searcher",
                 new_callable=AsyncMock,
-                return_value="perplexity fallback prose",
+                return_value="exa fallback prose",
             ),
             patch.object(orchestrator._summarizer_llm, "invoke", new_callable=AsyncMock) as invoke,
         ):
@@ -472,7 +471,7 @@ class TestAskNewsSummarization:
 
         # Fallback prose passes through verbatim; summarizer never runs.
         invoke.assert_not_awaited()
-        assert "perplexity fallback prose" in result
+        assert "exa fallback prose" in result
 
 
 class TestProviderSelection:
@@ -563,25 +562,10 @@ class TestProviderSelection:
         names = [n for _, n in providers]
         assert "resolution_source" not in names
 
-    @pytest.mark.parametrize(
-        ("present_key", "expected_name", "expect_openrouter_slug"),
-        [
-            ("PERPLEXITY_API_KEY", "perplexity", False),
-            ("OPENROUTER_API_KEY", "openrouter", True),
-        ],
-    )
-    async def test_perplexity_rungs_route_to_their_own_vendor(
-        self, mock_llm, question, monkeypatch, present_key, expected_name, expect_openrouter_slug
+    @pytest.mark.parametrize("present_key", ["PERPLEXITY_API_KEY", "OPENROUTER_API_KEY"])
+    def test_paid_perplexity_credentials_do_not_select_a_model_fallback(
+        self, mock_llm, monkeypatch, present_key
     ):
-        """The two Perplexity rungs of the priority ladder must not collapse into one.
-
-        Priority 3 is direct Perplexity (billed to PERPLEXITY_API_KEY); priority 4 is
-        Perplexity via OpenRouter (billed to OPENROUTER_API_KEY). The orchestrator
-        injects one bound method as both selector callbacks, so a default argument on
-        that method decides which vendor each rung actually reaches — and with only
-        PERPLEXITY_API_KEY set, routing to OpenRouter passes api_key=None and the rung
-        is broken outright, not merely mis-billed.
-        """
         for env_var in (
             "ASKNEWS_CLIENT_ID",
             "ASKNEWS_SECRET",
@@ -594,18 +578,18 @@ class TestProviderSelection:
         monkeypatch.setenv(present_key, "fake-key")
 
         orch = ResearchOrchestrator(default_llm=mock_llm, summarizer_llm=mock_llm)
-        provider, provider_name = orch._select_research_provider()
-        assert provider_name == expected_name
 
-        built = MagicMock()
-        built.invoke = AsyncMock(return_value="perplexity prose")
-        with patch("metaculus_bot.research.providers.GeneralLlm", return_value=built) as general_llm:
-            assert await provider(question) == "perplexity prose"
+        _provider, provider_name = orch._select_research_provider()
 
-        model_slug = general_llm.call_args.kwargs["model"]
-        assert model_slug.startswith("openrouter/") is expect_openrouter_slug, model_slug
-        # An OpenRouter route needs a key; the direct route must not smuggle one in.
-        assert (general_llm.call_args.kwargs["api_key"] is not None) is expect_openrouter_slug
+        assert provider_name == "none"
+
+    @pytest.mark.parametrize("forced_provider", ["perplexity", "openrouter"])
+    def test_paid_perplexity_override_fails_closed(self, mock_llm, monkeypatch, forced_provider):
+        monkeypatch.setenv("RESEARCH_PROVIDER", forced_provider)
+        orch = ResearchOrchestrator(default_llm=mock_llm, summarizer_llm=mock_llm)
+
+        with pytest.raises(ValueError, match="paid model routes are not allowed"):
+            orch._select_research_provider()
 
     def test_resolution_source_body_composes_with_header_and_demoted_headings(self):
         """Body written by the resolution_source provider composes with the
@@ -893,22 +877,22 @@ class TestProviderDiagnosticsCapture:
 
     @pytest.mark.asyncio
     async def test_status_fallback_when_asknews_falls_back_to_prose(self, mock_llm, question, monkeypatch):
-        monkeypatch.setenv("OPENROUTER_API_KEY", "fake-key")
+        monkeypatch.setenv("EXA_API_KEY", "fake-key")
         orch = ResearchOrchestrator(default_llm=mock_llm, summarizer_llm=mock_llm, allow_research_fallback=True)
         asknews = AsyncMock(side_effect=RuntimeError("asknews down"))
 
         with patch.object(
             orch,
-            "_call_perplexity",
+            "_call_exa_smart_searcher",
             new_callable=AsyncMock,
-            return_value="perplexity fallback prose",
+            return_value="exa fallback prose",
         ):
             text, results, _ = await orch._run_providers_parallel(question, [(asknews, "asknews")])
 
         assert results[0].status == "fallback"
         assert results[0].name == "asknews"
-        assert results[0].chars == len("perplexity fallback prose")
-        assert "perplexity fallback prose" in text
+        assert results[0].chars == len("exa fallback prose")
+        assert "exa fallback prose" in text
 
     @pytest.mark.asyncio
     async def test_fallback_records_a_loss_token_and_labels_the_real_source(self, mock_llm, question, monkeypatch):
@@ -923,11 +907,11 @@ class TestProviderDiagnosticsCapture:
         prose), so the briefing loses the relevance gate, [PRE-WINDOW] labeling, and
         recency reordering — while being labelled "News Articles (AskNews)".
         """
-        monkeypatch.setenv("OPENROUTER_API_KEY", "fake-key")
+        monkeypatch.setenv("EXA_API_KEY", "fake-key")
         orch = ResearchOrchestrator(default_llm=mock_llm, summarizer_llm=mock_llm, allow_research_fallback=True)
         asknews = AsyncMock(side_effect=RuntimeError("asknews down"))
 
-        with patch.object(orch, "_call_perplexity", new_callable=AsyncMock, return_value="perplexity fallback prose"):
+        with patch.object(orch, "_call_exa_smart_searcher", new_callable=AsyncMock, return_value="exa fallback prose"):
             text, results, _ = await orch._run_providers_parallel(question, [(asknews, "asknews")])
 
         sources = results[0].details["sources"]
@@ -936,10 +920,10 @@ class TestProviderDiagnosticsCapture:
         assert sources["fallback"].startswith("ok"), "the fallback that answered is a contributing source"
 
         # The vendor that answered, not the primary whose name the ProviderResult keeps.
-        assert results[0].fallback_provider == "openrouter"
-        assert "## Web Research (OpenRouter)" in text
+        assert results[0].fallback_provider == "exa"
+        assert "## Web Research (Exa)" in text
         assert "## News Articles (AskNews)" not in text, (
-            "Perplexity prose must not be labelled as AskNews articles in the comment or archive"
+            "Exa prose must not be labelled as AskNews articles in the comment or archive"
         )
         # Counters deliberately unchanged — see the docstring.
         assert orch.provider_failure_count == 0
@@ -1095,7 +1079,7 @@ class TestProviderDiagnosticsCapture:
         """A ``fallback`` provider (AskNews failed, prose fallback supplied the result) counts as
         succeeded — it contributed usable research. Pins the second member of SUCCEEDED_STATUSES."""
         monkeypatch.delenv("GAP_FILL_ENABLED", raising=False)
-        monkeypatch.setenv("OPENROUTER_API_KEY", "fake-key")
+        monkeypatch.setenv("EXA_API_KEY", "fake-key")
 
         captured: dict = {}
 
@@ -1112,7 +1096,7 @@ class TestProviderDiagnosticsCapture:
 
         with (
             patch.object(orch, "_select_research_providers", return_value=[(asknews, "asknews")]),
-            patch.object(orch, "_call_perplexity", new_callable=AsyncMock, return_value="perplexity fallback prose"),
+            patch.object(orch, "_call_exa_smart_searcher", new_callable=AsyncMock, return_value="exa fallback prose"),
         ):
             await orch.run_research(question)
 
