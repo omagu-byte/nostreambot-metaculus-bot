@@ -94,6 +94,9 @@ jobs:
           # is lost if the run crashes before a buffer flush.
           PYTHONUNBUFFERED: '1'
           METACULUS_TOKEN: ${{ secrets.METACULUS_TOKEN }} # replace this with the name of the variable under which you stored your own Metaculus token
+          YDC_API_KEY: ${{ secrets.YDC_API_KEY }}
+          FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
+          NIMBLE_API_KEY: ${{ secrets.NIMBLE_API_KEY }}
           PERPLEXITY_API_KEY: ${{ secrets.PERPLEXITY_API_KEY }}
           # Exa semantic search (gap-fill v2's search_web tool; also the legacy
           # SmartSearcher fallback path). Secret name is lowercase exa_key

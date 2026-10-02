@@ -62,6 +62,21 @@ class TestFormatResearchSummaryWithModels:
         assert "*Forecaster 1*: 72.0%" in result
         assert "(" not in result.split("### Forecasts")[1].split("### Research Summary")[0]
 
+    def test_adds_research_method_under_each_forecast(self):
+        base_text = "### Forecasts\n*Forecaster 1*: 72.0%\n"
+        predictions = [MagicMock(reasoning="Model: openrouter/openai/gpt-6-sol\n\nanalysis")]
+        research_text = "## Web Research (You.com)\nOne result\n\n## Web Research (Firecrawl)\nAnother result"
+
+        result = format_research_summary_with_models(
+            base_text,
+            predictions,
+            report_number=1,
+            research_text=research_text,
+        )
+
+        assert "*Forecaster 1 (gpt-6-sol)*: 72.0%" in result
+        assert "Research method: Shared research from You.com Search and Firecrawl was provided to each forecaster." in result
+
     def test_trims_oversized_text(self):
 
         huge_text = "## Report 1 Summary\n" + ("X" * (SUMMARY_SECTION_CHAR_LIMIT + 5000))
@@ -120,6 +135,27 @@ class TestBuildUnifiedExplanation:
         assert "STACKED=" not in result
         assert "STACKER_OUTCOME=" not in result
         assert "Body text." in result
+
+    def test_includes_final_method_note_when_research_sources_are_present(self):
+        result = build_unified_explanation(
+            base_text="# SUMMARY\n## Web Research (You.com)\nEvidence",
+            question=self._make_question(),
+            aggregation_strategy=AggregationStrategy.MEAN,
+            stacker_outcome=None,
+        )
+
+        assert "### Forecast Method" in result
+        assert "Final forecast: mean aggregation of the individual forecasts above." in result
+
+    def test_final_method_note_discloses_when_no_research_source_contributed(self):
+        result = build_unified_explanation(
+            base_text="# SUMMARY\nForecast only",
+            question=self._make_question(),
+            aggregation_strategy=AggregationStrategy.MEAN,
+            stacker_outcome=None,
+        )
+
+        assert "No external research source contributed" in result
 
     def test_median_strategy_just_trims(self):
 

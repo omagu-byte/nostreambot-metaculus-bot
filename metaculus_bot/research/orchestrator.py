@@ -30,19 +30,25 @@ from forecasting_tools.data_models.questions import MetaculusQuestion
 
 from metaculus_bot.api_key_utils import get_openrouter_api_key
 from metaculus_bot.constants import (
+    ASKNEWS_CLIENT_ID_ENV,
+    ASKNEWS_SECRET_ENV,
     DEFAULT_MAX_CONCURRENT_RESEARCH,
     EXA_API_KEY_ENV,
     FINANCIAL_DATA_ENABLED_ENV,
+    FIRECRAWL_API_KEY_ENV,
     GEMINI_SEARCH_ENABLED_ENV,
     GEMINI_SEARCH_MODEL_ENV,
     NATIVE_SEARCH_ENABLED_ENV,
     NATIVE_SEARCH_MODEL_ENV,
+    NIMBLE_API_KEY_ENV,
     OPENROUTER_API_KEY_ENV,
     PERPLEXITY_API_KEY_ENV,
     PERPLEXITY_RESEARCH_MODEL_VIA_OPENROUTER,
     PREDICTION_MARKETS_ENABLED_ENV,
+    RESEARCH_PROVIDER_ENV,
     RESOLUTION_SOURCE_ENABLED_ENV,
     TS_ANCHOR_ENABLED_ENV,
+    YDC_API_KEY_ENV,
     env_flag_enabled,
 )
 from metaculus_bot.fallback_openrouter import _record_deprecation_if_matched
@@ -60,11 +66,17 @@ from metaculus_bot.research.provider_diagnostics import (
 from metaculus_bot.research.provider_fanout import _empty_provider, await_providers_within_deadline
 from metaculus_bot.research.providers import (
     ResearchCallable,
+    _asknews_provider,
     _invoke_exa_research,
     _invoke_perplexity_research,
     choose_provider_with_name,
     is_asknews_subscription_error,
     native_search_provider,
+)
+from metaculus_bot.research.search_api_providers import (
+    firecrawl_search_provider,
+    nimble_agent_provider,
+    you_search_provider,
 )
 from metaculus_bot.research.section_format import _demote_inner_headings, assemble_provider_sections
 from metaculus_bot.time_budget import QuestionTimeBudget
@@ -153,6 +165,18 @@ class ResearchOrchestrator:
             research, provider_results, asknews_raw = await self._run_providers_parallel(
                 question, providers, time_budget=time_budget
             )
+            research, fallback_names, fallback_results, fallback_asknews_raw = await self._run_search_fallbacks(
+                question,
+                research,
+                provider_names,
+                provider_results,
+                fast_path=fast_path,
+                time_budget=time_budget,
+            )
+            provider_names.extend(fallback_names)
+            provider_results.extend(fallback_results)
+            asknews_raw = fallback_asknews_raw or asknews_raw
+
             if any(pr.status == "deadline" for pr in provider_results):
                 # Off the fast path nothing else counts this. See docs/research.md "Orchestrator implementation notes".
                 self._record_research_budget_cut(question, fast_path=fast_path)
@@ -198,6 +222,45 @@ class ResearchOrchestrator:
                     logger.exception("Research sink failed for qid=%d; continuing", qid)
 
             return research
+
+    async def _run_search_fallbacks(
+        self,
+        question: MetaculusQuestion,
+        research: str,
+        provider_names: list[str],
+        provider_results: list[ProviderResult],
+        *,
+        fast_path: bool,
+        time_budget: QuestionTimeBudget | None,
+    ) -> tuple[str, list[str], list[ProviderResult], str]:
+        """Try search fallbacks in order only when no configured web-search primary succeeded."""
+        primary_names = {name for name in ("ydc", "firecrawl") if name in provider_names}
+        primary_succeeded = any(
+            result.name in primary_names and result.status in SUCCEEDED_STATUSES for result in provider_results
+        )
+        if not primary_names or primary_succeeded:
+            return research, [], [], ""
+
+        attempted: list[str] = []
+        fallback_results_all: list[ProviderResult] = []
+        asknews_raw = ""
+        for fallback_provider, fallback_name in self._select_research_fallback_providers(fast_path=fast_path):
+            if time_budget is not None and time_budget.research_phase_deadline_s() <= 0:
+                logger.info("Research deadline exhausted; stopping search fallback ladder")
+                break
+            logger.info("Primary search providers returned no research; trying fallback %s", fallback_name)
+            attempted.append(fallback_name)
+            fallback_research, fallback_results, fallback_asknews_raw = await self._run_providers_parallel(
+                question,
+                [(fallback_provider, fallback_name)],
+                time_budget=time_budget,
+            )
+            fallback_results_all.extend(fallback_results)
+            asknews_raw = fallback_asknews_raw or asknews_raw
+            if fallback_research:
+                research = "\n\n---\n\n".join(part for part in (research, fallback_research) if part)
+                break
+        return research, attempted, fallback_results_all, asknews_raw
 
     def pop_provider_diagnostics(self, qid: int | None) -> str:
         """Return-and-clear the comment-bound provider-diagnostics block for a question.
@@ -251,33 +314,11 @@ class ResearchOrchestrator:
         provenance for what the fast path sheds is in docs/research.md "Orchestrator
         implementation notes".
         """
-        providers: list[tuple[ResearchCallable, str]] = []
-
-        primary, primary_name = self._select_research_provider()
-        if primary_name != "none":
-            providers.append((primary, primary_name))
-
-        if not fast_path and env_flag_enabled(NATIVE_SEARCH_ENABLED_ENV):
-            model = os.getenv(NATIVE_SEARCH_MODEL_ENV)
-            providers.append(
-                (
-                    native_search_provider(model, is_benchmarking=self._is_benchmarking),
-                    "native_search",
-                )
-            )
-
-        if not fast_path and env_flag_enabled(GEMINI_SEARCH_ENABLED_ENV):
-            from metaculus_bot.research.gemini_search import (  # noqa: PLC0415  # HARNESS-SCAN-EXEMPT-function-level-import  # gated google-genai provider
-                gemini_search_provider,
-            )
-
-            gemini_model = os.getenv(GEMINI_SEARCH_MODEL_ENV)
-            providers.append(
-                (
-                    gemini_search_provider(gemini_model, is_benchmarking=self._is_benchmarking),
-                    "gemini_search",
-                )
-            )
+        providers = self._select_lead_search_providers(fast_path=fast_path)
+        if not any(name in {"ydc", "firecrawl"} for _, name in providers):
+            primary, primary_name = self._select_research_provider()
+            if primary_name != "none":
+                providers.insert(0, (primary, primary_name))
 
         if env_flag_enabled(FINANCIAL_DATA_ENABLED_ENV):
             from metaculus_bot.research.financial_data import (  # noqa: PLC0415  # HARNESS-SCAN-EXEMPT-function-level-import  # gated pandas/yfinance/fredapi provider
@@ -316,6 +357,65 @@ class ResearchOrchestrator:
         if not providers:
             providers.append((_empty_provider, "none"))
 
+        return providers
+
+    def _select_lead_search_providers(self, *, fast_path: bool) -> list[tuple[ResearchCallable, str]]:
+        """Choose configured You.com/Firecrawl primaries or legacy search supplements."""
+        forced_provider = os.getenv(RESEARCH_PROVIDER_ENV, "").strip().lower()
+        explicit_legacy_override = forced_provider in {"asknews", "exa", "perplexity", "openrouter"}
+        providers: list[tuple[ResearchCallable, str]] = []
+        if self._custom_provider is None and not explicit_legacy_override:
+            if os.getenv(YDC_API_KEY_ENV):
+                providers.append((you_search_provider, "ydc"))
+            if os.getenv(FIRECRAWL_API_KEY_ENV):
+                providers.append((firecrawl_search_provider, "firecrawl"))
+        if providers:
+            return providers
+
+        if not fast_path and env_flag_enabled(NATIVE_SEARCH_ENABLED_ENV):
+            providers.append((native_search_provider(os.getenv(NATIVE_SEARCH_MODEL_ENV), self._is_benchmarking), "native_search"))
+        if not fast_path and env_flag_enabled(GEMINI_SEARCH_ENABLED_ENV):
+            from metaculus_bot.research.gemini_search import (  # noqa: PLC0415  # HARNESS-SCAN-EXEMPT-function-level-import  # gated google-genai provider
+                gemini_search_provider,
+            )
+
+            providers.append(
+                (
+                    gemini_search_provider(os.getenv(GEMINI_SEARCH_MODEL_ENV), is_benchmarking=self._is_benchmarking),
+                    "gemini_search",
+                )
+            )
+        return providers
+
+    def _select_research_fallback_providers(self, *, fast_path: bool) -> list[tuple[ResearchCallable, str]]:
+        """Return web-search fallbacks in cost-conscious order for failed/empty API primaries."""
+        providers: list[tuple[ResearchCallable, str]] = []
+        if not fast_path and os.getenv(NIMBLE_API_KEY_ENV):
+            providers.append((nimble_agent_provider, "nimble"))
+
+        if not fast_path and env_flag_enabled(NATIVE_SEARCH_ENABLED_ENV):
+            providers.append((native_search_provider(os.getenv(NATIVE_SEARCH_MODEL_ENV), self._is_benchmarking), "native_search"))
+
+        if not fast_path and env_flag_enabled(GEMINI_SEARCH_ENABLED_ENV):
+            from metaculus_bot.research.gemini_search import (  # noqa: PLC0415  # HARNESS-SCAN-EXEMPT-function-level-import  # gated google-genai provider
+                gemini_search_provider,
+            )
+
+            providers.append(
+                (
+                    gemini_search_provider(os.getenv(GEMINI_SEARCH_MODEL_ENV), is_benchmarking=self._is_benchmarking),
+                    "gemini_search",
+                )
+            )
+
+        if os.getenv(ASKNEWS_CLIENT_ID_ENV) and os.getenv(ASKNEWS_SECRET_ENV):
+            providers.append((_asknews_provider(), "asknews"))
+        if os.getenv(EXA_API_KEY_ENV):
+            providers.append((self._call_exa_smart_searcher, "exa"))
+        if os.getenv(PERPLEXITY_API_KEY_ENV):
+            providers.append((self._call_perplexity_direct, "perplexity"))
+        if os.getenv(OPENROUTER_API_KEY_ENV):
+            providers.append((self._call_perplexity_openrouter, "openrouter"))
         return providers
 
     def _failed_provider_result(self, name: str, exc: Exception, latency_ms: int) -> ProviderResult:

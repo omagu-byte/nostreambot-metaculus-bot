@@ -194,31 +194,30 @@ Perplexity passes `None`, while the OpenRouter route resolves its key before con
 members at the bottom of `ResearchOrchestrator` are the orchestrator-attribute surface that
 `forecaster.py`, `cli.py` and `degradation_counters.py` read them through.
 
-## Primary provider: a priority ladder
+## Primary search and fallbacks
 
-There is always exactly one primary provider, chosen by
-`choose_provider_with_name` (`research/providers.py`). It walks a fixed
-priority order and returns the first provider whose credentials are present:
+The credentialed web-search primary set is You.com (`YDC_API_KEY`) and Firecrawl
+(`FIRECRAWL_API_KEY`). Each configured provider runs concurrently; if only one
+key is present, that provider runs alone. Their rendered sections are included
+in the research bundle and each forecast's method note names only sources that
+returned content.
 
-1. **AskNews** if `ASKNEWS_CLIENT_ID` and `ASKNEWS_SECRET` are set. This is the
-   production case.
-2. **Exa.ai** (`SmartSearcher`) if `EXA_API_KEY` is set: a generic rundown
-   (`_exa_provider`, `research/providers.py`).
-3. **Perplexity direct** if `PERPLEXITY_API_KEY` is set. Model:
-   `PERPLEXITY_RESEARCH_MODEL` (`constants.py`); the function is
-   `_perplexity_provider` (`research/providers.py`), and its prompt explicitly
-   asks for prediction-market consideration unless the run is benchmarking.
-4. **Perplexity via OpenRouter** if `OPENROUTER_API_KEY` is set. Same function
-   called with `use_open_router=True`, same model, prefixed for the OpenRouter
-   route: `PERPLEXITY_RESEARCH_MODEL_VIA_OPENROUTER`.
-5. **Empty stub** if none of the above: research is just the add-on providers.
+Fallbacks run sequentially only if none of the configured You.com/Firecrawl
+primaries returns usable research. The order is Nimble Agent Search
+(`NIMBLE_API_KEY`), enabled native/Gemini search, AskNews, Exa, direct
+Perplexity, and Perplexity via OpenRouter; only providers with their required
+credentials are included, and each successful fallback stops the ladder. All
+provider calls use the research-phase deadline; Nimble also has a 120-second
+per-call wall and is skipped on the fast path. FRED, time-series anchors,
+prediction markets, and resolution sources remain specialized supplemental
+providers, not generic web-search fallbacks.
 
-In production the AskNews credentials are present, so Exa and the two Perplexity
-routes never run as the primary. They are fallbacks, not peers. To force a
-specific primary regardless of credentials, set `RESEARCH_PROVIDER=<name>`
+If neither search API key is configured, the legacy primary selector remains:
+AskNews (`ASKNEWS_CLIENT_ID` + `ASKNEWS_SECRET`), Exa (`EXA_API_KEY`), direct
+Perplexity (`PERPLEXITY_API_KEY`), OpenRouter Perplexity (`OPENROUTER_API_KEY`),
+then an empty stub. Set `RESEARCH_PROVIDER=<name>` to force a legacy provider
 (`asknews` / `exa` / `perplexity` / `openrouter`); any other value behaves as
-auto. Forcing `asknews` without the AskNews creds fails loudly rather than
-silently picking a different provider.
+auto. Forcing AskNews without its credentials fails loudly.
 
 Exa and Perplexity client construction and invocation live in
 `research/providers.py` (`_invoke_exa_research` and

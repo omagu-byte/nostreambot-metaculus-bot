@@ -711,7 +711,7 @@ class TestMain:
 
     def _run(self, monkeypatch, *, extra_argv=()) -> None:
         posts = {
-            "open": [_post(701, _question(71, forecast=True))],
+            "open": [_post(701, _question(71, scheduled="2099-09-30T00:00:00Z", forecast=True))],
             "closed": [
                 _post(
                     702,
