@@ -112,25 +112,18 @@ the published comment, stashed per question id in `run_research` and popped by
 **`run_research`: the sink's two provider lists.** `provider_results` is the authoritative
 per-provider outcome; `providers_used` is kept only for legacy archive readers.
 
-**`_select_research_provider`: the two Perplexity callbacks.** Each rung gets the vendor its env var
-pays for. Binding the bare `_call_perplexity` here would hand priority 3 the method's
-OpenRouter-first default, which is deliberate on the AskNews-fallback path (where
-`_attempt_research_fallback` prefers the cheap route) and wrong here, because it collapses the
-ladder's two Perplexity rungs into one and passes `api_key=None` whenever only `PERPLEXITY_API_KEY`
-is set.
+**`_select_research_provider`: free-only model selection.** Paid Perplexity routes remain in
+legacy helper code, but production selection rejects forced Perplexity/OpenRouter modes and does
+not select those models from credentials.
 
-**`_select_research_providers`: what the fast path can and cannot shed.** The optional providers all
-run CONCURRENTLY with the primary, whose own worst case (AskNews 300 s plus summarizer 300 s,
-sequential inside one provider) is the phase's longest configured pole. Dropping the cheap
-hard-capped providers (`resolution_source` 45 s, `prediction_market` 150 s, `ts_anchor` 20 s, the
-financial classifier 30 s) therefore cannot shorten the phase and only discards the resolution
-ground truth. What the fast path CAN shed is the measured tail: `native_search` is the phase's
-slowest provider on 51.5% of questions and reached 292 s against the primary's 110 s measured worst
-case (`scratch/residual_2026-08-24/time_budget_design.md`).
+**`_select_research_providers`: fast-path providers.** You.com and Firecrawl run concurrently as
+primaries when configured. Production workflows leave the standalone native-search and direct
+Gemini-search stages off; any local native-search override must use an explicit `:free` route.
+Specialized deterministic fetch/data providers remain concurrent and keep their existing bounds.
 
-**`_select_research_providers`: `resolution_source` stays on the fast path.** It is cheap and hard
-capped at 45 s, so it stays in; the flag is handed to it so its two EXPENSIVE ladder rungs, the
-Chromium launch and the paid reader, decline instead, while its direct fetch and cheap rungs run.
+**`_select_research_providers`: `resolution_source` stays on the fast path.** It is hard-capped at
+45 s, so it stays in; production disables Gemini URL-context while direct fetch and local-document
+rungs remain available.
 
 **`_run_providers_parallel`: the raw AskNews capture.** `asknews_raw_holder` carries the raw
 pre-summarization AskNews article text for the research archive, added as 2026-07-18 audit hygiene:
@@ -145,11 +138,9 @@ over the size cap being the worked example, ride into `ProviderResult.details` i
 behind a healthy `ok`.
 
 **`_run_one`: which providers are summarized.** AskNews returns raw article markdown with no LLM
-prose, so it is summarized into an analyst briefing. Every other provider already emits LLM-written
-prose (native search, Gemini, Perplexity, Exa) or deterministic tables (financial data, prediction
-markets), so they pass through raw and take no lossy second-pass summarization. When AskNews fails
-and the run falls back to Perplexity or Exa, that fallback is already prose, so summarization is
-skipped there too.
+prose, so it is summarized into an analyst briefing. Other providers emit prose (Nimble, native
+search, Exa) or deterministic tables (financial data, prediction markets), so they pass through
+without a second summarization. AskNews recovery uses Exa when configured.
 
 **`_run_one`: empty raw skips the summarizer entirely.** There is nothing to brief from, and asking
 anyway spends a call to get either a refusal or an invented briefing, since the summarizer prompt
@@ -179,15 +170,8 @@ and why it diverges from the primary ladder are in "AskNews fallback (primary-on
 further detail: the names this function returns are the same keys `provider_header` maps, so the
 section header follows the vendor that actually answered, automatically.
 
-**`_call_perplexity`: the market-odds policy.** This prompt carries the same narrowed market-odds
-policy as `web_research_prompt` and the direct-Perplexity provider, interpolated from the one
-definition in `prompts` rather than restated, because this copy kept the retired blanket "briefly
-research prediction markets" ask after that policy had been narrowed to the venues the live snapshot
-cannot cover. The no-speculation tail is this prompt's own and stays: it is an anti-fabrication rule
-about an empty result, not a second opinion on which venues to read.
-
-**`_call_perplexity`: explicit credential routing.** Keep this call site's routing explicit. Direct
-Perplexity passes `None`, while the OpenRouter route resolves its key before construction.
+Perplexity prompt/client helpers remain for isolated legacy tooling, but the production selector
+rejects paid Perplexity routes and never selects them automatically.
 
 **The degradation-counter property surface.** The research side's degradation counters live in
 `degradation_views`, along with their long "why is this alertable" rationales. The five one-line
@@ -204,52 +188,32 @@ returned content.
 
 Fallbacks run sequentially only if none of the configured You.com/Firecrawl
 primaries returns usable research. The order is Nimble Agent Search
-(`NIMBLE_API_KEY`), enabled native/Gemini search, AskNews, Exa, direct
-Perplexity, and Perplexity via OpenRouter; only providers with their required
-credentials are included, and each successful fallback stops the ladder. All
+(`NIMBLE_API_KEY`), enabled native search, AskNews, then Exa; only providers
+with their required credentials are included, and each successful fallback
+stops the ladder. Gemini model search and Perplexity model routes are excluded
+from normal selection to keep model inference on verified free tiers. All
 provider calls use the research-phase deadline; Nimble also has a 120-second
 per-call wall and is skipped on the fast path. FRED, time-series anchors,
 prediction markets, and resolution sources remain specialized supplemental
 providers, not generic web-search fallbacks.
 
 If neither search API key is configured, the legacy primary selector remains:
-AskNews (`ASKNEWS_CLIENT_ID` + `ASKNEWS_SECRET`), Exa (`EXA_API_KEY`), direct
-Perplexity (`PERPLEXITY_API_KEY`), OpenRouter Perplexity (`OPENROUTER_API_KEY`),
-then an empty stub. Set `RESEARCH_PROVIDER=<name>` to force a legacy provider
-(`asknews` / `exa` / `perplexity` / `openrouter`); any other value behaves as
-auto. Forcing AskNews without its credentials fails loudly.
+AskNews (`ASKNEWS_CLIENT_ID` + `ASKNEWS_SECRET`), Exa (`EXA_API_KEY`), then an
+empty stub. Set `RESEARCH_PROVIDER=asknews` or `exa` to force one; attempts to
+force paid `perplexity` / `openrouter` model routes fail loudly. Forcing AskNews
+without its credentials also fails loudly.
 
-Exa and Perplexity client construction and invocation live in
-`research/providers.py` (`_invoke_exa_research` and
-`_invoke_perplexity_research`). Both the standalone provider factories and the
-orchestrator use these helpers. Each caller retains its existing prompt and
-constructor options: the Exa factory explicitly disables citation formatting,
-while the orchestrator uses SDK defaults; the Perplexity factory omits `api_key`,
-while the orchestrator passes `None` for direct access or resolves the OpenRouter
-key. These distinctions remain part of the call contract.
+Exa client construction and invocation live in `research/providers.py`
+(`_invoke_exa_research`). Perplexity helpers are not part of production selection.
 
-The Perplexity prompt interpolates `OUTSIDE_VENUE_MARKET_ODDS_POLICY` rather than restating the
-market-odds ask, because a second copy of it drifted once. This provider is the primary whenever
-the AskNews credentials are absent, so its copy is live policy, and it kept the retired blanket
-"consider all relevant prediction markets" wording after the first-pass prompt had been narrowed
-to the venues the live market snapshot does not cover. Both helpers also pass `temperature=None`
-to pin provider-default sampling against a future `GeneralLlm` default flip, and the Perplexity
-model is built at `allowed_tries=1` so the elapsed-gated `invoke_with_transient_retry` wrapper is
-the only retry owner on that path. On the Exa side `temperature` is ignored outright when the
-model is a preconfigured `GeneralLlm`; `None` is what keeps litellm from applying a sampling
-param on the fallback string path.
+The retained Perplexity prompt is legacy-only and is not reachable through production provider
+selection. Exa remains the only configured model-assisted legacy search fallback.
 
 ### AskNews fallback (primary-only)
 
-AskNews is the only primary that gets a runtime fallback. If the AskNews fetch
-raises, `_fetch_research_with_fallback` (`research/orchestrator.py`) tries a
-prose provider instead, in a **different** order than the primary ladder:
-OpenRouter-Perplexity first (cheapest, prose-returning), then direct Perplexity,
-then Exa last (its `SmartSearcher` spins up its own multi-search loop, the most
-expensive path). The primary ladder orders by index quality; this fallback list
-orders by cost, because it only ever fires after AskNews has already failed.
-It selects the first fallback with credentials; failure of that selected provider
-does not advance to another fallback.
+AskNews is the only legacy primary that gets a runtime fallback. If its fetch raises,
+`_fetch_research_with_fallback` (`research/orchestrator.py`) tries Exa when `EXA_API_KEY` is
+configured. Paid Perplexity/OpenRouter model fallbacks are not part of production selection.
 
 One AskNews error is treated specially: a `403011` "subscription is not currently
 active" signature (`is_asknews_subscription_error`, `research/providers.py`) is

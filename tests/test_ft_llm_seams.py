@@ -166,7 +166,7 @@ class TestProductionKwargShapesReachAcompletion:
         calls = _install_acompletion(monkeypatch)
         response_format = PercentileListWrapper
         llm = GeneralLlm(
-            model="openrouter/anthropic/claude-opus-4.8",
+            model="openrouter/qwen/qwen3.8-27b:free",
             temperature=None,
             timeout=480,
             allowed_tries=1,
@@ -195,13 +195,13 @@ class TestProductionKwargShapesReachAcompletion:
         # temperature=None is forwarded (litellm drops the None downstream), not turned into 0.
         assert sent["temperature"] is None
         # model prefix stripping is a no-op for openrouter/* — the full slug reaches litellm.
-        assert sent["model"] == "openrouter/anthropic/claude-opus-4.8"
+        assert sent["model"] == "openrouter/qwen/qwen3.8-27b:free"
 
     async def test_native_search_config_object_funnels_web_kwargs(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The real ``build_native_search_llm`` object funnels the web-search plumbing."""
         calls = _install_acompletion(monkeypatch)
         # Explicit effort/verbosity overrides so the shapes are pinned regardless of env.
-        llm = build_native_search_llm("openai/gpt-5.6-terra", reasoning_effort="low", verbosity="high")
+        llm = build_native_search_llm("nvidia/nemotron-3.5-lightning:free", reasoning_effort="low", verbosity="high")
 
         await llm.invoke("research this")
 

@@ -178,6 +178,8 @@ def should_route_via_donated_key(model: str) -> bool:
     """
     if not isinstance(model, str):  # a non-slug routes to the personal key rather than crashing the key decision
         return False
+    if model.endswith(":free"):
+        return False
     if not donated_openrouter_key_enabled():
         return False
     if not model.startswith("openrouter/"):

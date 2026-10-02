@@ -41,8 +41,6 @@ from metaculus_bot.constants import (
     NATIVE_SEARCH_ENABLED_ENV,
     NATIVE_SEARCH_MODEL_ENV,
     NIMBLE_API_KEY_ENV,
-    OPENROUTER_API_KEY_ENV,
-    PERPLEXITY_API_KEY_ENV,
     PERPLEXITY_RESEARCH_MODEL_VIA_OPENROUTER,
     PREDICTION_MARKETS_ENABLED_ENV,
     RESEARCH_PROVIDER_ENV,
@@ -412,10 +410,6 @@ class ResearchOrchestrator:
             providers.append((_asknews_provider(), "asknews"))
         if os.getenv(EXA_API_KEY_ENV):
             providers.append((self._call_exa_smart_searcher, "exa"))
-        if os.getenv(PERPLEXITY_API_KEY_ENV):
-            providers.append((self._call_perplexity_direct, "perplexity"))
-        if os.getenv(OPENROUTER_API_KEY_ENV):
-            providers.append((self._call_perplexity_openrouter, "openrouter"))
         return providers
 
     def _failed_provider_result(self, name: str, exc: Exception, latency_ms: int) -> ProviderResult:
@@ -558,7 +552,7 @@ class ResearchOrchestrator:
         """Return ``(research_text, fallback_provider_name)``.
 
         ``fallback_provider_name`` is None on the normal path and otherwise names the
-        vendor that actually answered ("openrouter" / "perplexity" / "exa"). The caller
+        vendor that actually answered ("exa"). The caller
         uses it for two things: to skip AskNews summarization on already-prose output, and
         to label the research section with the source that produced it.
 
@@ -594,14 +588,8 @@ class ResearchOrchestrator:
         that actually answered; rendering it as AskNews mislabeled the source in the
         published comment and in the archive.
         """
-        # Ordered by cost, not index quality. See docs/research.md "AskNews fallback (primary-only)".
+        # Exa uses the configured free default model; paid Perplexity model routes are excluded.
         try:
-            if os.getenv(OPENROUTER_API_KEY_ENV):
-                logger.info("Falling back to openrouter/perplexity for research")
-                return (await self._call_perplexity(question_text, use_open_router=True), "openrouter")
-            if os.getenv(PERPLEXITY_API_KEY_ENV):
-                logger.info("Falling back to Perplexity for research")
-                return (await self._call_perplexity(question_text, use_open_router=False), "perplexity")
             if os.getenv(EXA_API_KEY_ENV):
                 logger.info("Falling back to Exa search for research")
                 return (await self._call_exa_smart_searcher(question_text), "exa")

@@ -42,8 +42,6 @@ from metaculus_bot.constants import (
     NATIVE_SEARCH_TIMEOUT,
     NATIVE_SEARCH_VERBOSITY_DEFAULT,
     NATIVE_SEARCH_VERBOSITY_ENV,
-    OPENROUTER_API_KEY_ENV,
-    PERPLEXITY_API_KEY_ENV,
     PERPLEXITY_RESEARCH_MODEL,
     PERPLEXITY_RESEARCH_MODEL_VIA_OPENROUTER,
     PERPLEXITY_WALL_TIMEOUT,
@@ -467,6 +465,8 @@ def build_native_search_llm(
     "OpenAI native search".
     """
     base_model = model_slug or os.getenv(NATIVE_SEARCH_MODEL_ENV, NATIVE_SEARCH_DEFAULT_MODEL)
+    if not base_model.endswith(":free"):
+        raise ValueError(f"Native search requires an explicit OpenRouter :free model route, got {base_model!r}")
     model_with_search = f"openrouter/{base_model}"
 
     kwargs: dict = {
@@ -565,13 +565,9 @@ def _forced_provider_choice(
             raise ValueError("RESEARCH_PROVIDER=exa requires default_llm or exa_callback to be provided")
         return _exa_provider(default_llm), "exa"
     if forced_lc == "perplexity":
-        if perplexity_callback is not None:
-            return perplexity_callback, "perplexity"
-        return _perplexity_provider(use_open_router=False, is_benchmarking=is_benchmarking), "perplexity"
+        raise ValueError("RESEARCH_PROVIDER=perplexity is disabled: paid model routes are not allowed")
     if forced_lc == "openrouter":
-        if openrouter_callback is not None:
-            return openrouter_callback, "openrouter"
-        return _perplexity_provider(use_open_router=True, is_benchmarking=is_benchmarking), "openrouter"
+        raise ValueError("RESEARCH_PROVIDER=openrouter is disabled: paid model routes are not allowed")
     # Any other value behaves as auto
     return None
 
@@ -595,16 +591,6 @@ def _auto_provider_choice(
             raise ValueError("default_llm must be provided for Exa research provider")
         return _exa_provider(default_llm), "exa"
 
-    if os.getenv(PERPLEXITY_API_KEY_ENV):
-        if perplexity_callback is not None:
-            return perplexity_callback, "perplexity"
-        return _perplexity_provider(use_open_router=False, is_benchmarking=is_benchmarking), "perplexity"
-
-    if os.getenv(OPENROUTER_API_KEY_ENV):
-        if openrouter_callback is not None:
-            return openrouter_callback, "openrouter"
-        return _perplexity_provider(use_open_router=True, is_benchmarking=is_benchmarking), "openrouter"
-
     async def _empty(_: MetaculusQuestion) -> str:
         return ""
 
@@ -621,15 +607,10 @@ def choose_provider_with_name(
 ) -> tuple[ResearchCallable, str]:
     """Return a research coroutine and its provider name.
 
-    Priority order replicates pre-refactor behaviour:
-    1. AskNews (ASKNEWS_CLIENT_ID & ASKNEWS_SECRET)
-    2. Exa.ai (EXA_API_KEY)
-    3. Perplexity (PERPLEXITY_API_KEY)
-    4. Perplexity via OpenRouter (OPENROUTER_API_KEY)
-    5. Fallback stub that returns an empty string.
+    Free research providers are selected by credentials. Paid-model Perplexity routes are
+    deliberately excluded from both automatic and forced selection.
 
-    ``RESEARCH_PROVIDER`` forces a specific provider; an unrecognized value falls
-    through to the priority order above.
+    ``RESEARCH_PROVIDER`` may force AskNews or Exa; paid Perplexity values raise.
     """
     forced = os.getenv(RESEARCH_PROVIDER_ENV)
     if forced:

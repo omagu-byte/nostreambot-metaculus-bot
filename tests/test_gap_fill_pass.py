@@ -1026,7 +1026,7 @@ async def test_resolver_builds_native_search_llm_with_sol_low() -> None:
     builder.assert_called_once()
     call = builder.call_args
     model_arg = call.args[0] if call.args else call.kwargs.get("model_slug")
-    assert model_arg == GAP_FILL_RESOLVER_MODEL == "openai/gpt-6-sol"
+    assert model_arg == GAP_FILL_RESOLVER_MODEL == "nvidia/nemotron-3.5-lightning:free"
     assert call.kwargs["reasoning_effort"] == GAP_FILL_RESOLVER_REASONING_EFFORT == "low"
 
 

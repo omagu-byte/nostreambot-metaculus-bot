@@ -74,35 +74,27 @@ operator steps: the reads below are free metadata pulls with no inference spend,
 but they are network calls and they feed a roster decision, so an implementing
 session does not run them: it proposes, the operator runs and decides.
 
-- **Resolve "latest per vendor" from a LIVE model-list read, never from memory.**
-  The roster design (`FORECASTER_LLMS` in `metaculus_bot/llm_configs.py`) is the
-  newest frontier reasoning model from each vendor, one slot each, and nothing in
-  the repo can say what that currently resolves to. The 2026-08-31 gemini-slot
-  review found that a roster decision needs this one read before anything else.
-  OpenRouter's public models endpoint lists every slug with `created`, its
-  listing time as a Unix timestamp (per the endpoint's OpenAPI schema):
+- **Use only verified free model routes in production.** The roster and active
+  support roles (`FORECASTER_LLMS` in `metaculus_bot/llm_configs.py`, defaults in
+  `metaculus_bot/constants.py`) must use explicit `:free` routes. Verify the
+  model's current zero input/output price and capabilities from OpenRouter's
+  public catalog before changing a route:
 
   ```bash
   curl -s https://openrouter.ai/api/v1/models \
     | jq -r '.data[] | [.id, .created] | @tsv' | sort
   ```
 
-  Filter per vendor prefix (`openai/`, `anthropic/`, `google/`, `x-ai/`) and
-  read the newest `created` per vendor:
+  Filter for `:free` text-generation models and inspect their completion limit,
+  modality, structured-output support, and tools:
 
   ```bash
   curl -s https://openrouter.ai/api/v1/models \
-    | jq -r '.data[] | [.id, (.created | todate)] | @tsv' \
-    | grep -E '^(openai|anthropic|google|x-ai)/' | sort -t$'\t' -k2
+    | jq -r '.data[] | select(.id | endswith(":free")) | [.id, .pricing.prompt, .pricing.completion, .context_length, .architecture.modality] | @tsv' \
+    | sort
   ```
 
-  Then check, before touching the roster: the slug is a reasoning model, not a
-  mini/flash/fast tier or a `:free` route; its provider is on the donated key's
-  allowed list (`DONATED_KEY_PROVIDERS` in `fallback_openrouter.py`), or the slot
-  knowingly bills the personal key like the pinned Google Pro slot
-  (`DONATED_KEY_BLOCKED_GOOGLE_MODELS`); and its reasoning-effort enum accepts
-  the tier the slot is configured for (the OpenAI ceiling is `xhigh`; `max` is
-  Anthropic-only).
+  Production runtime overrides also fail closed unless they select a free route.
 - **A roster change is a config-era boundary.** Residual analysis buckets by the
   merge-to-main timestamp, so make any swap once, in the same merge as everything
   else that shifts the forecast distribution, before the first question, never
@@ -222,75 +214,32 @@ No-Stream/metaculus-bot --all` read it as `active` on 2026-09-09. Nothing in the
 repo warns when a workflow is disabled; the way to notice is a supply-probe row
 showing a tournament's questions with no bot forecasts.
 
-## API keys and the shared-vs-personal key model
+## API keys and free model routing
 
-The bot needs several credentials. `.env.template` lists them with inline
-notes; copy it and fill in real values. The one piece of routing that trips
-people up is the two OpenRouter keys.
+**Production model policy (2026-10-02):** active forecaster and helper LLM
+assignments use OpenRouter `:free` routes only. The free routes bypass the
+donated-key wrapper, so a failure cannot fall back to a paid personal model
+route. Paid OpenAI, Anthropic, Perplexity, and Gemini inference paths are not
+enabled in production workflows. The legacy shared-vs-personal key details
+below describe dormant routing support and non-production tools, not the live
+production roster.
 
-- **`OAI_ANTH_OPENROUTER_KEY`: donated / shared.** Metaculus provides credits
-  on this key for OpenAI, Anthropic, and Google models routed via OpenRouter.
-  Its server-side allowed-providers list is locked to those three, so anything
-  else (Grok via x-ai, Qwen, Perplexity) returns 404 on this key. This is the
-  only shared credential in the bot; despite the name it covers all three
-  providers, not just OpenAI and Anthropic. `DONATED_OPENROUTER_KEY_ENABLED`
-  (default `true`) is its master switch: `--mode mantic` requires it to read false
-  and fails shut otherwise, because the key was donated for Metaculus tournaments
-  (see "Mantic" below).
-- **`OPENROUTER_API_KEY`: personal.** Pays for what the donated key can't
-  (Grok, Qwen, Perplexity-via-OpenRouter) and serves as the fallback when the
-  donated key hits a credential, credit, or allowed-providers error. The
-  fallback wrapper is `FallbackOpenRouterLlm` in
-  `metaculus_bot/fallback_openrouter.py`.
-- **`GOOGLE_API_KEY`: personal.** The operator's Google AI Studio key on a
-  billing-enabled project. Powers the Gemini grounded-search provider and gap-
-  fill v2's document reads. There is no donated Google AI Studio path. In CI
-  this is stored as the `GEMINI_API_KEY` secret and surfaced to the workflow as
-  `GOOGLE_API_KEY` so the `google-genai` SDK picks it up.
+The production workflows require `OPENROUTER_API_KEY` for authentication to
+explicit `:free` routes. They do not export OpenAI, Anthropic, Perplexity,
+Google AI Studio, or donated OpenRouter model credentials. `OAI_ANTH_OPENROUTER_KEY`
+and the paid-key fallback wrapper remain for legacy/non-production tooling, but
+free routes bypass that wrapper and cannot fall back to a paid key. `GOOGLE_API_KEY`
+is not used by production workflows: direct Gemini grounding and URL-context
+reading are disabled there.
 
-Gemini has two separate routes, which is the other easy thing to confuse:
-
-- **OpenRouter Gemini** (forecaster / stacker / summarizer slots) routes
-  donated-key-first with personal-key fallback, controlled by
-  `GEMINI_USE_DONATED_OPENROUTER_KEY` (default `true`, since 2026-06-16). It is on
-  by default because Metaculus raised the Google rate limits, so the donated key
-  now serves most Gemini models. Verified by live call, `gemini-3.5-flash` and
-  `gemini-3.1-flash-lite` both succeed on it. Setting the toggle to a false-y
-  value (`false`/`0`/`no`) forces personal-key-only routing for ALL Gemini; the
-  three prod workflow YAMLs and `test_bot.yaml` pin it to `'true'` explicitly.
-
-  **Known exception:** the Gemini Pro forecaster slot is PINNED to the personal
-  key by the `DONATED_KEY_BLOCKED_GOOGLE_MODELS` blocklist in
-  `fallback_openrouter.py` (read the blocklist for which models it currently
-  covers). `should_route_via_donated_key` returns `False` for anything on it even
-  with the toggle ON, so there is no donated attempt, no 429, and no
-  personal-key-fallback-counter bump (which would otherwise redden CI on every
-  question), and a credit error on one of those models is always a personal-key
-  issue. It is pinned rather than falling back because that model routes through a
-  free-tier Google AI Studio BYOK key on the donated account with no Pro free tier
-  (quota 0 → `is_byok:true` + `FreeTier limit: 0`). This is a temporary workaround
-  tagged `TODO(gemini-3.1-pro-donated)` in code: remove the blocklist entry once
-  Metaculus fixes the BYOK routing (enable Cloud billing on the BYOK key's GCP
-  project, remove the Google AI Studio BYOK integration so native OpenRouter
-  Google credits are used, or disable "Always use for this provider" on that BYOK
-  key), then re-verify with one live call. See
-  `metaculus_bot/fallback_openrouter.py:should_route_via_donated_key` and
-  `FUTURE.md` "Gemini on the donated OpenRouter key".
-- **Gemini grounded search** (`research/gemini_search.py`) always uses the
-  personal `GOOGLE_API_KEY`. The donated toggle does not touch it, and neither
-  does anything else on the OpenRouter side. What that key costs is its own
-  subsection below.
-
-Other keys, all personal, no shared variants: `METACULUS_TOKEN`, `MANTIC_TOKEN`
-(the Crucible bot token, read only in `--mode mantic`), `YDC_API_KEY`,
+Platform and API-research credentials are separate from model inference:
+`METACULUS_TOKEN`, `MANTIC_TOKEN` (only `--mode mantic`), `YDC_API_KEY`,
 `FIRECRAWL_API_KEY`, `NIMBLE_API_KEY`, `ASKNEWS_CLIENT_ID` + `ASKNEWS_SECRET`,
-`EXA_API_KEY`, `PERPLEXITY_API_KEY`, `FRED_API_KEY`, `GOOGLE_API_KEY`,
-`ANTHROPIC_API_KEY`, and `OPENAI_API_KEY`. The two direct model-provider keys
-only matter if you bypass OpenRouter; most flows route through OpenRouter and
-don't need them. You.com and Firecrawl are the concurrent web-search primaries
-when their keys are configured. Nimble Agent Search is tried only if those
-primaries both return no usable research. FRED remains limited to financial data,
-and Google AI Studio is used for grounded search and URL-context reading.
+`EXA_API_KEY`, and `FRED_API_KEY`. You.com and Firecrawl are concurrent web-search
+primaries when configured; Nimble is a fallback. `PERPLEXITY_API_KEY`,
+`GOOGLE_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and
+`OAI_ANTH_OPENROUTER_KEY` are not wired into production workflows. FRED remains
+limited to financial data; direct Gemini search and URL-context are disabled.
 
 `SEC_EDGAR_CONTACT_EMAIL` is not a key but a contact address (also personal): the SEC EDGAR
 client puts it in the fair-access User-Agent, and the client declines to dial without it. The

@@ -123,3 +123,46 @@ def test_every_allowlisted_file_still_holds_a_model_id() -> None:
 
     stale_pins = sorted(_ALLOWED_FILES - _files_holding_a_model_id().keys())
     assert not stale_pins, f"allowlisted file holds no model-id literal any more; drop the pin: {stale_pins}"
+
+
+def test_active_production_llm_routes_are_free() -> None:
+    """Every configured OpenRouter model route must be explicitly free."""
+    from metaculus_bot.constants import (
+        FINANCIAL_CLASSIFIER_MODEL,
+        GAP_FILL_ANALYZER_MODEL,
+        GAP_FILL_RESOLVER_MODEL,
+        GAP_FILL_V2_DRIVER_MODEL,
+        LEAKAGE_DETECTOR_MODEL,
+        NATIVE_SEARCH_DEFAULT_MODEL,
+        PAGE_DIGEST_EXTRACTOR_MODEL,
+    )
+    from metaculus_bot.llm_configs import (
+        DISAGREEMENT_ANALYZER_LLM,
+        FORECASTER_LLMS,
+        MARKET_QUERY_AUTHOR_LLM_CONFIG,
+        MARKET_RANKER_LLM_CONFIG,
+        PARSER_LLM,
+        STACKER_FALLBACK_LLM,
+        STACKER_LLM,
+        SUMMARIZER_LLM,
+    )
+
+    configured_models = [
+        *(llm.model for llm in FORECASTER_LLMS),
+        DISAGREEMENT_ANALYZER_LLM.model,
+        MARKET_QUERY_AUTHOR_LLM_CONFIG["model"],
+        MARKET_RANKER_LLM_CONFIG["model"],
+        PARSER_LLM.model,
+        STACKER_FALLBACK_LLM.model,
+        STACKER_LLM.model,
+        SUMMARIZER_LLM.model,
+        FINANCIAL_CLASSIFIER_MODEL,
+        GAP_FILL_ANALYZER_MODEL,
+        GAP_FILL_RESOLVER_MODEL,
+        GAP_FILL_V2_DRIVER_MODEL,
+        LEAKAGE_DETECTOR_MODEL,
+        NATIVE_SEARCH_DEFAULT_MODEL,
+        PAGE_DIGEST_EXTRACTOR_MODEL,
+    ]
+
+    assert all(model.endswith(":free") for model in configured_models), configured_models

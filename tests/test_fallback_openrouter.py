@@ -87,6 +87,7 @@ class TestPredicates:
         # OpenAI / Anthropic always route via the donated key when one is configured.
         assert should_route_via_donated_key("openrouter/openai/gpt-5.1") is True
         assert should_route_via_donated_key("openrouter/anthropic/claude-sonnet-4") is True
+        assert should_route_via_donated_key("openrouter/nvidia/nemotron-3.5-lightning:free") is False
         # Google is gated on GEMINI_USE_DONATED_OPENROUTER_KEY. With the toggle on,
         # flash models prefer the donated key — but gemini-3.1-pro is on the
         # DONATED_KEY_BLOCKED_GOOGLE_MODELS blocklist (free-tier BYOK → 429), so it

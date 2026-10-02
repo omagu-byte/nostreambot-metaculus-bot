@@ -1,19 +1,17 @@
-"""Replay one question's gap-fill v1 gaps through the resolver at several models and search context sizes.
+"""Replay one question's gap-fill v1 gaps through free model routes and search context sizes.
 
-Gap-fill v1 (``research/targeted.py``) answers each analyzer gap with one OpenAI native web
-search built by ``build_native_search_llm``. That call is the bot's single largest spend line,
-about $0.19 a call, most of it retrieved page text billed back as input tokens at the model's
-rate (``scratch/cost_pass_2026-09-09/cost_anatomy.md``), and neither of its two price levers,
-the model's input price and OpenAI's ``search_context_size``, had been measured. This probe
+Gap-fill v1 (``research/targeted.py``) answers each analyzer gap with one OpenRouter web-search
+call built by ``build_native_search_llm``. Production uses a free-tier model route; this probe
+compares that route with another free model and search context settings. This probe
 takes the gaps the archive recorded for ONE question, sends each through the production
 resolver path (the same prompt builder and the same LLM builder, with the model and the
 context size overridden) at every ``model:context_size`` cell of a grid, and writes the
 answers side by side with OpenRouter's own per-call cost and token counts, so the operator
 can read what a cheaper cell gives up.
 
-It SPENDS the operator's personal OpenRouter key (gaps x cells calls, up to about $0.20
-each), which is why it refuses to run without ``--i-accept-spend`` and prints its ceiling
-first. The Metaculus-donated key is never used: the probe forces
+It makes outbound model/search requests and may incur provider-side search charges, which is why
+it still refuses to run without ``--i-accept-spend`` and prints its ceiling first. The
+Metaculus-donated key is never used: the probe forces
 ``DONATED_OPENROUTER_KEY_ENABLED=false`` before any LLM is built, the switch a Mantic run
 uses, so every cost figure it records is the whole charge rather than a BYOK platform fee.
 
@@ -55,9 +53,9 @@ from metaculus_bot.prompts import gap_fill_search_prompt
 from metaculus_bot.research.providers import build_native_search_llm
 
 # A literal like gemini_verify.CANDIDATE_MODEL: the repo has not adopted this model, so no constant carries it.
-CANDIDATE_MODEL = "openai/gpt-6-luna"
+CANDIDATE_MODEL = "qwen/qwen3.8-27b:free"
 CURRENT_MODEL_ALIAS = "current"
-CANDIDATE_MODEL_ALIAS = "luna"
+CANDIDATE_MODEL_ALIAS = "qwen"
 MODEL_ALIASES: dict[str, str] = {CURRENT_MODEL_ALIAS: GAP_FILL_RESOLVER_MODEL, CANDIDATE_MODEL_ALIAS: CANDIDATE_MODEL}
 SEARCH_CONTEXT_SIZES: tuple[str, ...] = ("low", "medium", "high")
 PRODUCTION_CONTEXT_SIZE = "high"

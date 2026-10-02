@@ -249,7 +249,7 @@ class TestProviderInvocationContracts:
 
 
 @pytest.mark.asyncio
-async def test_run_research_falls_back_to_openrouter(monkeypatch, question, base_llms):
+async def test_run_research_falls_back_to_exa(monkeypatch, question, base_llms):
     bot = TemplateForecaster(llms=base_llms, aggregation_strategy=AggregationStrategy.MEAN)
 
     failing_provider = AsyncMock(side_effect=RuntimeError("primary failure"))
@@ -258,16 +258,15 @@ async def test_run_research_falls_back_to_openrouter(monkeypatch, question, base
     )
 
     fallback = AsyncMock(return_value="fallback research")
-    monkeypatch.setattr(bot._research, "_call_perplexity", fallback)
-    monkeypatch.setenv("OPENROUTER_API_KEY", "token")
+    monkeypatch.setattr(bot._research, "_call_exa_smart_searcher", fallback)
+    monkeypatch.setenv("EXA_API_KEY", "token")
     monkeypatch.delenv("PERPLEXITY_API_KEY", raising=False)
-    monkeypatch.delenv("EXA_API_KEY", raising=False)
 
     result = await bot.run_research(question)
 
     assert "fallback research" in result
     assert failing_provider.await_count == 1
-    fallback.assert_awaited_once_with(question.question_text, use_open_router=True)
+    fallback.assert_awaited_once_with(question.question_text)
 
 
 @pytest.mark.asyncio
@@ -306,67 +305,57 @@ async def test_run_research_returns_empty_when_all_providers_fail(monkeypatch, q
 
 class TestAskNewsFallbackOrder:
     @pytest.mark.asyncio
-    @pytest.mark.parametrize(
-        ("present_key", "expected_provider", "expected_openrouter"),
-        [
-            ("OPENROUTER_API_KEY", "openrouter", True),
-            ("PERPLEXITY_API_KEY", "perplexity", False),
-            ("EXA_API_KEY", "exa", None),
-        ],
-    )
-    async def test_each_credential_selects_its_existing_fallback_rung(
-        self,
-        monkeypatch,
-        base_llms,
-        present_key: str,
-        expected_provider: str,
-        expected_openrouter: bool | None,
-    ) -> None:
+    async def test_exa_is_the_only_configured_asknews_fallback(self, monkeypatch, base_llms) -> None:
         for key in ("OPENROUTER_API_KEY", "PERPLEXITY_API_KEY", "EXA_API_KEY"):
             monkeypatch.delenv(key, raising=False)
-        monkeypatch.setenv(present_key, "key")
+        monkeypatch.setenv("EXA_API_KEY", "key")
         bot = TemplateForecaster(llms=base_llms, aggregation_strategy=AggregationStrategy.MEAN)
 
         with (
-            patch.object(bot._research, "_call_perplexity", new_callable=AsyncMock, return_value="perplexity") as pplx,
+            patch.object(bot._research, "_call_perplexity", new_callable=AsyncMock) as pplx,
             patch.object(bot._research, "_call_exa_smart_searcher", new_callable=AsyncMock, return_value="exa") as exa,
         ):
             result = await bot._research._attempt_research_fallback("Sample question?")
 
-        assert result == (("exa", "exa") if expected_provider == "exa" else ("perplexity", expected_provider))
-        if expected_provider == "exa":
-            exa.assert_awaited_once_with("Sample question?")
-            pplx.assert_not_awaited()
-        else:
-            pplx.assert_awaited_once_with("Sample question?", use_open_router=expected_openrouter)
-            exa.assert_not_awaited()
+        assert result == ("exa", "exa")
+        exa.assert_awaited_once_with("Sample question?")
+        pplx.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_paid_keys_do_not_trigger_asknews_model_fallback(self, monkeypatch, base_llms) -> None:
+        monkeypatch.setenv("OPENROUTER_API_KEY", "openrouter-key")
+        monkeypatch.setenv("PERPLEXITY_API_KEY", "perplexity-key")
+        monkeypatch.delenv("EXA_API_KEY", raising=False)
+        bot = TemplateForecaster(llms=base_llms, aggregation_strategy=AggregationStrategy.MEAN)
+
+        perplexity = AsyncMock()
+        with patch.object(bot._research, "_call_perplexity", perplexity):
+            result = await bot._research._attempt_research_fallback("Sample question?")
+
+        assert result == (None, None)
+        perplexity.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_first_present_fallback_failure_does_not_cascade(self, monkeypatch, base_llms) -> None:
-        monkeypatch.setenv("OPENROUTER_API_KEY", "openrouter-key")
-        monkeypatch.setenv("PERPLEXITY_API_KEY", "perplexity-key")
         monkeypatch.setenv("EXA_API_KEY", "exa-key")
         bot = TemplateForecaster(llms=base_llms, aggregation_strategy=AggregationStrategy.MEAN)
 
-        perplexity = AsyncMock(side_effect=RuntimeError("selected fallback failed"))
-        exa = AsyncMock(return_value="must not run")
+        exa = AsyncMock(side_effect=RuntimeError("selected fallback failed"))
         with (
-            patch.object(bot._research, "_call_perplexity", perplexity),
             patch.object(bot._research, "_call_exa_smart_searcher", exa),
         ):
             result = await bot._research._attempt_research_fallback("Sample question?")
 
         assert result == (None, None)
-        perplexity.assert_awaited_once_with("Sample question?", use_open_router=True)
-        exa.assert_not_awaited()
+        exa.assert_awaited_once_with("Sample question?")
 
     @pytest.mark.asyncio
     async def test_fallback_cancellation_propagates(self, monkeypatch, base_llms) -> None:
-        monkeypatch.setenv("OPENROUTER_API_KEY", "openrouter-key")
+        monkeypatch.setenv("EXA_API_KEY", "exa-key")
         bot = TemplateForecaster(llms=base_llms, aggregation_strategy=AggregationStrategy.MEAN)
 
         with (
-            patch.object(bot._research, "_call_perplexity", new_callable=AsyncMock, side_effect=asyncio.CancelledError),
+            patch.object(bot._research, "_call_exa_smart_searcher", new_callable=AsyncMock, side_effect=asyncio.CancelledError),
             pytest.raises(asyncio.CancelledError),
         ):
             await bot._research._attempt_research_fallback("Sample question?")

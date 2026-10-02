@@ -20,7 +20,7 @@ async def test_native_search_provider_constructs_correct_model_name(
 ) -> None:
     """Verify native search provider constructs model name correctly via NATIVE_SEARCH_MODEL env override."""
     monkeypatch.setenv("NATIVE_SEARCH_ENABLED", "true")
-    monkeypatch.setenv("NATIVE_SEARCH_MODEL", "openai/gpt-5.5")
+    monkeypatch.setenv("NATIVE_SEARCH_MODEL", "nvidia/nemotron-3.5-lightning:free")
 
     captured_model: str | None = None
     captured_kwargs: dict | None = None
@@ -41,7 +41,7 @@ async def test_native_search_provider_constructs_correct_model_name(
         provider = native_search_provider()
         await provider(_make_q("Will X happen?"))
 
-    assert captured_model == "openrouter/openai/gpt-5.5"
+    assert captured_model == "openrouter/nvidia/nemotron-3.5-lightning:free"
     # Default reasoning effort + verbosity should be plumbed through.
     # `verbosity` is now top-level (canonical OpenRouter / litellm form);
     # `extra_body` is no longer used to smuggle it.
@@ -76,10 +76,10 @@ async def test_native_search_provider_uses_custom_model_slug(
     with patch("metaculus_bot.research.providers.build_llm_with_openrouter_fallback", MockLlm):
         from metaculus_bot.research.providers import native_search_provider
 
-        provider = native_search_provider(model_slug="openai/gpt-4o")
+        provider = native_search_provider(model_slug="nvidia/nemotron-3.5-lightning:free")
         await provider(_make_q("Will X happen?"))
 
-    assert captured_model == "openrouter/openai/gpt-4o"
+    assert captured_model == "openrouter/nvidia/nemotron-3.5-lightning:free"
 
 
 class TestStripUtmSource:
@@ -308,9 +308,9 @@ class TestBuildNativeSearchLlmOverrides:
         """Explicit reasoning_effort="medium" beats NATIVE_SEARCH_REASONING_EFFORT=low."""
         monkeypatch.setenv("NATIVE_SEARCH_REASONING_EFFORT", "low")
 
-        captured = self._captured_kwargs(model_slug="openai/gpt-5.6-luna", reasoning_effort="medium")
+        captured = self._captured_kwargs(model_slug="nvidia/nemotron-3.5-lightning:free", reasoning_effort="medium")
 
-        assert "gpt-5.6-luna" in captured["model"]
+        assert "nemotron-3.5-lightning:free" in captured["model"]
         assert captured.get("reasoning") == {"effort": "medium"}
 
     def test_verbosity_override_wins_over_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -375,7 +375,7 @@ class TestParallelProviderSelection:
     ) -> None:
         """Verify native search provider added when enabled."""
         monkeypatch.setenv("NATIVE_SEARCH_ENABLED", "true")
-        monkeypatch.setenv("NATIVE_SEARCH_MODEL", "openai/gpt-5.5")
+        monkeypatch.setenv("NATIVE_SEARCH_MODEL", "nvidia/nemotron-3.5-lightning:free")
         monkeypatch.setenv("FINANCIAL_DATA_ENABLED", "false")
         monkeypatch.setenv("ASKNEWS_CLIENT_ID", "id")
         monkeypatch.setenv("ASKNEWS_SECRET", "secret")
